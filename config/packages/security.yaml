@@ -30,6 +30,7 @@ security:
             stateless: true
             user_checker: App\Security\UserChecker
             jwt: ~
+            access_denied_handler: App\Security\AccessDeniedHandler
 
             # activate different ways to authenticate
             # https://symfony.com/doc/current/security.html#the-firewall
@@ -45,6 +46,9 @@ security:
         - { path: ^/api/v1/auth/send-otp, roles: PUBLIC_ACCESS }
         - { path: ^/api/v1/auth/verify-otp, roles: PUBLIC_ACCESS }
         - { path: ^/api/v1/auth/login, roles: PUBLIC_ACCESS }
+
+          # адмінка тільки для ROLE_ADMIN
+        - { path: ^/api/v1/admin, roles: ROLE_ADMIN }
 
           # усе інше в /api тільки з JWT
         - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }

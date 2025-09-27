@@ -1,13 +1,13 @@
 <?php
 
-namespace App\Controller;
+namespace App\Controller\User;
 
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Routing\Annotation\Route;
 
-#[Route('/profile', name: 'profile_')]
-final class ProfileController extends AbstractController
+#[Route('/user', name: 'user_')]
+final class UserProfileController extends AbstractController
 {
     #[Route('/me', name: 'me', methods: ['GET'])]
     public function me(): JsonResponse
