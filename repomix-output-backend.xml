@@ -87,111 +87,6 @@ symfony.lock
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/Controller/Admin/UserAdminController.php">
-<?php
-
-namespace App\Controller\Admin;
-
-use App\Repository\UserRepository;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\Routing\Attribute\Route;
-
-#[Route('/admin/users', name: 'admin_users_')]
-final class UserAdminController extends AbstractController
-{
-    #[Route('', name: 'list', methods: ['GET'])]
-    public function index(UserRepository $userRepository): JsonResponse
-    {
-        $users = $userRepository->findAll();
-
-        $data = array_map(function ($user) {
-            return [
-                'id'        => $user->getId(),
-                'phone'     => $user->getPhone(),
-                'firstName' => $user->getFirstName(),
-                'lastName'  => $user->getLastName(),
-                'status'    => $user->getStatus(),
-                'isVerified'=> $user->isVerified(),
-                'roles'     => $user->getRoles(),
-            ];
-        }, $users);
-
-        return $this->json([
-            'status'  => 200,
-            'message' => 'List of users',
-            'data'    => $data,
-        ]);
-    }
-}
-</file>
-
-<file path="src/Controller/User/UserProfileController.php">
-<?php
-
-namespace App\Controller\User;
-
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\Routing\Annotation\Route;
-
-#[Route('/user', name: 'user_')]
-final class UserProfileController extends AbstractController
-{
-    #[Route('/me', name: 'me', methods: ['GET'])]
-    public function me(): JsonResponse
-    {
-
-      /** @var \App\Entity\User $user */
-
-        $user = $this->getUser();
-
-        if (!$user) {
-            return $this->json([
-                'status' => 401,
-                'message' => 'Unauthorized',
-            ], 401);
-        }
-
-        return $this->json([
-            'status' => 200,
-            'message' => 'User profile',
-            'data' => [
-                'id'        => $user->getId(),
-                'phone'     => $user->getPhone(),
-                'firstName' => $user->getFirstName(),
-                'lastName'  => $user->getLastName(),
-                'status'    => $user->getStatus(),
-                'isVerified'=> $user->isVerified(),
-                'roles'     => $user->getRoles(),
-            ],
-        ]);
-    }
-}
-</file>
-
-<file path="src/Security/AccessDeniedHandler.php">
-<?php
-
-namespace App\Security;
-
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\Security\Core\Exception\AccessDeniedException;
-use Symfony\Component\Security\Http\Authorization\AccessDeniedHandlerInterface;
-
-class AccessDeniedHandler implements AccessDeniedHandlerInterface
-{
-    public function handle(Request $request, AccessDeniedException $accessDeniedException): ?JsonResponse
-    {
-        return new JsonResponse([
-            'status'  => 403,
-            'message' => 'Access denied: admin role required',
-        ], 403);
-    }
-}
-</file>
-
 <file path=".editorconfig">
 # editorconfig.org
 
@@ -658,6 +553,89 @@ class CreateVerifyProfileCommand extends Command
 }
 </file>
 
+<file path="src/Controller/Admin/UserAdminController.php">
+<?php
+
+namespace App\Controller\Admin;
+
+use App\Repository\UserRepository;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\Routing\Attribute\Route;
+
+#[Route('/admin/users', name: 'admin_users_')]
+final class UserAdminController extends AbstractController
+{
+    #[Route('', name: 'list', methods: ['GET'])]
+    public function index(UserRepository $userRepository): JsonResponse
+    {
+        $users = $userRepository->findAll();
+
+        $data = array_map(function ($user) {
+            return [
+                'id'        => $user->getId(),
+                'phone'     => $user->getPhone(),
+                'firstName' => $user->getFirstName(),
+                'lastName'  => $user->getLastName(),
+                'status'    => $user->getStatus(),
+                'isVerified'=> $user->isVerified(),
+                'roles'     => $user->getRoles(),
+            ];
+        }, $users);
+
+        return $this->json([
+            'status'  => 200,
+            'message' => 'List of users',
+            'data'    => $data,
+        ]);
+    }
+}
+</file>
+
+<file path="src/Controller/User/UserProfileController.php">
+<?php
+
+namespace App\Controller\User;
+
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\Routing\Annotation\Route;
+
+#[Route('/user', name: 'user_')]
+final class UserProfileController extends AbstractController
+{
+    #[Route('/me', name: 'me', methods: ['GET'])]
+    public function me(): JsonResponse
+    {
+
+      /** @var \App\Entity\User $user */
+
+        $user = $this->getUser();
+
+        if (!$user) {
+            return $this->json([
+                'status' => 401,
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
+        return $this->json([
+            'status' => 200,
+            'message' => 'User profile',
+            'data' => [
+                'id'        => $user->getId(),
+                'phone'     => $user->getPhone(),
+                'firstName' => $user->getFirstName(),
+                'lastName'  => $user->getLastName(),
+                'status'    => $user->getStatus(),
+                'isVerified'=> $user->isVerified(),
+                'roles'     => $user->getRoles(),
+            ],
+        ]);
+    }
+}
+</file>
+
 <file path="src/Kernel.php">
 <?php
 
@@ -732,6 +710,28 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
     //            ->getOneOrNullResult()
     //        ;
     //    }
+}
+</file>
+
+<file path="src/Security/AccessDeniedHandler.php">
+<?php
+
+namespace App\Security;
+
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Security\Core\Exception\AccessDeniedException;
+use Symfony\Component\Security\Http\Authorization\AccessDeniedHandlerInterface;
+
+class AccessDeniedHandler implements AccessDeniedHandlerInterface
+{
+    public function handle(Request $request, AccessDeniedException $accessDeniedException): ?JsonResponse
+    {
+        return new JsonResponse([
+            'status'  => 403,
+            'message' => 'Access denied: admin role required',
+        ], 403);
+    }
 }
 </file>
 
@@ -899,76 +899,6 @@ return [
     Lexik\Bundle\JWTAuthenticationBundle\LexikJWTAuthenticationBundle::class => ['all' => true],
     Symfony\Bundle\MonologBundle\MonologBundle::class => ['all' => true],
 ];
-</file>
-
-<file path="config/packages/security.yaml">
-security:
-    # https://symfony.com/doc/current/security.html#registering-the-user-hashing-passwords
-    password_hashers:
-        Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
-    # https://symfony.com/doc/current/security.html#loading-the-user-the-user-provider
-    providers:
-        app_user_provider:
-            entity:
-                class: App\Entity\User
-                property: phone
-        # used to reload user from session & other features (e.g. switch_user)
-    firewalls:
-        dev:
-            pattern: ^/(_(profiler|wdt)|css|images|js)/    
-            security: false
-        
-        login:
-            pattern: ^/api/v1/auth/login
-            stateless: true
-            user_checker: App\Security\UserChecker
-            json_login:
-                check_path: /api/v1/auth/login
-                username_path: phone    # <-- беремо телефон з JSON-запиту
-                password_path: password # <-- поки залишимо пароль (пізніше замінимо на SMS-код)
-                success_handler: lexik_jwt_authentication.handler.authentication_success
-                failure_handler: lexik_jwt_authentication.handler.authentication_failure
-        
-        api:
-            pattern: ^/api
-            stateless: true
-            user_checker: App\Security\UserChecker
-            jwt: ~
-            access_denied_handler: App\Security\AccessDeniedHandler
-
-            # activate different ways to authenticate
-            # https://symfony.com/doc/current/security.html#the-firewall
-
-            # https://symfony.com/doc/current/security/impersonating_user.html
-            # switch_user: true
-
-    # Easy way to control access for large sections of your site
-    # Note: Only the *first* access control that matches will be used
-    access_control:
-          # дозволяємо всі auth-ендпойнти без JWT
-        - { path: ^/api/v1/auth/register, roles: PUBLIC_ACCESS }
-        - { path: ^/api/v1/auth/send-otp, roles: PUBLIC_ACCESS }
-        - { path: ^/api/v1/auth/verify-otp, roles: PUBLIC_ACCESS }
-        - { path: ^/api/v1/auth/login, roles: PUBLIC_ACCESS }
-
-          # адмінка тільки для ROLE_ADMIN
-        - { path: ^/api/v1/admin, roles: ROLE_ADMIN }
-
-          # усе інше в /api тільки з JWT
-        - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }
-
-when@test:
-    security:
-        password_hashers:
-            # By default, password hashers are resource intensive and take time. This is
-            # important to generate secure password hashes. In tests however, secure hashes
-            # are not important, waste resources and increase test times. The following
-            # reduces the work factor to the lowest possible values.
-            Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface:
-                algorithm: auto
-                cost: 4 # Lowest possible value for bcrypt
-                time_cost: 3 # Lowest possible value for argon
-                memory_cost: 10 # Lowest possible value for argon
 </file>
 
 <file path="config/services.yaml">
@@ -1462,6 +1392,76 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         }
     }
 }
+</file>
+
+<file path="config/packages/security.yaml">
+security:
+    # https://symfony.com/doc/current/security.html#registering-the-user-hashing-passwords
+    password_hashers:
+        Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
+    # https://symfony.com/doc/current/security.html#loading-the-user-the-user-provider
+    providers:
+        app_user_provider:
+            entity:
+                class: App\Entity\User
+                property: phone
+        # used to reload user from session & other features (e.g. switch_user)
+    firewalls:
+        dev:
+            pattern: ^/(_(profiler|wdt)|css|images|js)/    
+            security: false
+        
+        login:
+            pattern: ^/api/v1/auth/login
+            stateless: true
+            user_checker: App\Security\UserChecker
+            json_login:
+                check_path: /api/v1/auth/login
+                username_path: phone    # <-- беремо телефон з JSON-запиту
+                password_path: password # <-- поки залишимо пароль (пізніше замінимо на SMS-код)
+                success_handler: lexik_jwt_authentication.handler.authentication_success
+                failure_handler: lexik_jwt_authentication.handler.authentication_failure
+        
+        api:
+            pattern: ^/api
+            stateless: true
+            user_checker: App\Security\UserChecker
+            jwt: ~
+            access_denied_handler: App\Security\AccessDeniedHandler
+
+            # activate different ways to authenticate
+            # https://symfony.com/doc/current/security.html#the-firewall
+
+            # https://symfony.com/doc/current/security/impersonating_user.html
+            # switch_user: true
+
+    # Easy way to control access for large sections of your site
+    # Note: Only the *first* access control that matches will be used
+    access_control:
+          # дозволяємо всі auth-ендпойнти без JWT
+        - { path: ^/api/v1/auth/register, roles: PUBLIC_ACCESS }
+        - { path: ^/api/v1/auth/send-otp, roles: PUBLIC_ACCESS }
+        - { path: ^/api/v1/auth/verify-otp, roles: PUBLIC_ACCESS }
+        - { path: ^/api/v1/auth/login, roles: PUBLIC_ACCESS }
+
+          # адмінка тільки для ROLE_ADMIN
+        - { path: ^/api/v1/admin, roles: ROLE_ADMIN }
+
+          # усе інше в /api тільки з JWT
+        - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }
+
+when@test:
+    security:
+        password_hashers:
+            # By default, password hashers are resource intensive and take time. This is
+            # important to generate secure password hashes. In tests however, secure hashes
+            # are not important, waste resources and increase test times. The following
+            # reduces the work factor to the lowest possible values.
+            Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface:
+                algorithm: auto
+                cost: 4 # Lowest possible value for bcrypt
+                time_cost: 3 # Lowest possible value for argon
+                memory_cost: 10 # Lowest possible value for argon
 </file>
 
 <file path="src/Controller/AuthController.php">
