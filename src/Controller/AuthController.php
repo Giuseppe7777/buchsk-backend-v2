@@ -12,6 +12,9 @@ use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use App\Service\TelnyxOtpService;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use Symfony\Component\Validator\Validator\ValidatorInterface;
+use App\Validator\PasswordComplexity;
+use Symfony\Component\Validator\Constraints as Assert;
 
 #[Route('/auth', name: 'auth_')]
 final class AuthController extends AbstractController
@@ -27,27 +30,46 @@ final class AuthController extends AbstractController
       UserPasswordHasherInterface $hasher,
       UserRepository $users,
       \Psr\Log\LoggerInterface $logger,
+      ValidatorInterface $validator,
   ): JsonResponse 
   {
       $data = json_decode($request->getContent(), true);
 
-      // validation
-      $validationError = $this->validateRegisterInput($data);
-      if ($validationError !== null) {
-          return $validationError;
+      // 1) Перевіряємо JSON і обов’язкові поля
+      if (!$data) {
+          return $this->json([
+              'status' => JsonResponse::HTTP_BAD_REQUEST,
+              'message' => 'Invalid JSON',
+              'errors' => [
+                  'json' => 'Request body must be valid JSON.',
+              ],
+          ], JsonResponse::HTTP_BAD_REQUEST);
       }
 
-      $phone = $data['phone'];
-      $password = $data['password'];
-      $firstName = $data['firstName'];
-      $lastName = $data['lastName'];
+      $phone     = $data['phone'] ?? null;
+      $password  = $data['password'] ?? null;
+      $firstName = $data['firstName'] ?? null;
+      $lastName  = $data['lastName'] ?? null;
 
-      // uniqueness check
+      if (!$phone || !$password || !$firstName || !$lastName) {
+          return $this->json([
+              'status' => JsonResponse::HTTP_BAD_REQUEST,
+              'message' => 'Required fields are missing.',
+              'errors' => [
+                  'phone' => !$phone ? 'Phone is required.' : null,
+                  'password' => !$password ? 'Password is required.' : null,
+                  'firstName' => !$firstName ? 'First name is required.' : null,
+                  'lastName' => !$lastName ? 'Last name is required.' : null,
+              ],
+          ], JsonResponse::HTTP_BAD_REQUEST);
+      }
+
+      // 2) Унікальність телефону
       if ($this->userExists($users, $phone)) {
           return $this->conflictResponse();
       }
 
-      // create user
+      // 3) Створюємо об’єкт користувача
       $user = new User();
       $user->setPhone($phone);
       $user->setFirstName($firstName);
@@ -55,9 +77,40 @@ final class AuthController extends AbstractController
       $user->setStatus('pending');
       $user->setIsVerified(false);
 
+      // 4) Валідація (phone, firstName, lastName)
+      $violations = $validator->validate($user);
+      if (\count($violations) > 0) {
+          $errors = [];
+          foreach ($violations as $violation) {
+              $field = $violation->getPropertyPath();
+              $errors[$field] = $violation->getMessage();
+          }
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => $errors,
+          ], 400);
+      }
+
+      // 5) Перевірка складності пароля
+      $violations = $validator->validate($password, [
+          new PasswordComplexity(),
+      ]);
+      if (\count($violations) > 0) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [
+                  'password' => $violations[0]->getMessage(),
+              ],
+          ], 400);
+      }
+
+      // 6) Хешування пароля
       $hashed = $hasher->hashPassword($user, $password);
       $user->setPassword($hashed);
 
+      // 7) Зберігаємо користувача
       try {
           $em->persist($user);
           $em->flush();
@@ -70,7 +123,7 @@ final class AuthController extends AbstractController
           return $this->conflictResponse();
       }
 
-      // send OTP
+      // 8) Надсилаємо OTP
       try {
           $result = $this->telnyxOtp->sendOtp($phone);
 
@@ -89,6 +142,7 @@ final class AuthController extends AbstractController
           $message = 'User created, but verification service unavailable. Please try later.';
       }
 
+      // 9) Успішна відповідь
       return $this->json([
           'status' => JsonResponse::HTTP_CREATED,
           'message' => $message,
@@ -103,8 +157,10 @@ final class AuthController extends AbstractController
   {
       return $this->json([
           'status' => JsonResponse::HTTP_CONFLICT,
-          'message' => 'a user with this phone number already exists',
-          'data' => null,
+          'message' => 'Validation failed',
+          'errors' => [
+              'phone' => 'User with this phone number already exists.',
+          ],
       ], JsonResponse::HTTP_CONFLICT);
   }
 
@@ -113,69 +169,61 @@ final class AuthController extends AbstractController
       return $users->findOneBy(['phone' => $phone]) !== null;
   }
 
-  private function validateRegisterInput(?array $data): ?JsonResponse
-  {
-      if (!$data) {
-          return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Invalid JSON',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
-      }
-
-      if (empty($data['phone']) || empty($data['password']) || empty($data['firstName']) || empty($data['lastName'])) {
-          return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Fields phone, password, firstName and lastName are required.',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
-      }
-
-      return null; 
-  }
-
-
-  #[Route('/send-otp', name: 'send-otp', methods: ['POST'])]
-  public function sendOtp(
-      Request $request,
-  ): JsonResponse 
-  {
-      // TODO: sent OTP 
-      return $this->json([
-        "status" => JsonResponse::HTTP_OK,
-        "message" => "otp verified (stub)",
-        "data" => null
-      ]);
-  }
-
   #[Route('/verify-otp', name: 'verify-otp', methods: ['POST'])]
   public function verifyOtp(
       Request $request,
       UserRepository $users,
       EntityManagerInterface $em,
       \Psr\Log\LoggerInterface $logger,
+      ValidatorInterface $validator,
   ): JsonResponse 
   {
       $data = json_decode($request->getContent(), true);
 
-      if (!$data || empty($data['phone']) || empty($data['code'])) {
+      if (!$data) {
           return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Fields phone and code are required.',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
+              'status' => 400,
+              'message' => 'Invalid JSON',
+              'errors' => [ 'json' => 'Request body must be valid JSON.' ],
+          ], 400);
       }
 
-      $phone = $data['phone'];
-      $code  = $data['code'];
+      $phone = $data['phone'] ?? null;
+      $code  = $data['code']  ?? null;
+
+      if (!$phone || !$code) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Required fields are missing.',
+              'errors'  => [
+                  'phone' => !$phone ? 'Phone is required.' : null,
+                  'otp'   => !$code  ? 'OTP is required.'   : null,
+              ],
+          ], 400);
+      }
+
+      // regex-валідатор для OTP (5-6 цифр)
+      $codeViolations = $validator->validate($code, [
+          new Assert\Regex([
+              'pattern' => '/^\d{5,6}$/',
+              'message' => 'OTP must be 5 or 6 digits.',
+          ]),
+      ]);
+      if (\count($codeViolations) > 0) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [ 'otp' => $codeViolations[0]->getMessage() ],
+          ], 400);
+      }
 
       $user = $users->findOneBy(['phone' => $phone]);
       if (!$user) {
           return $this->json([
-              'status' => JsonResponse::HTTP_NOT_FOUND,
-              'message' => 'User with this phone not found.',
-              'data' => null,
-          ], JsonResponse::HTTP_NOT_FOUND);
+              'status'  => 404,
+              'message' => 'Validation failed',
+              'errors'  => [ 'phone' => 'User with this phone not found.' ],
+          ], 404);
       }
 
       try {
@@ -184,10 +232,10 @@ final class AuthController extends AbstractController
           $logger->critical('OTP verify exception', ['phone' => $phone, 'exception' => $e->getMessage()]);
 
           return $this->json([
-              'status' => JsonResponse::HTTP_SERVICE_UNAVAILABLE,
-              'message' => 'Verification service unavailable. Please try later.',
-              'data' => null,
-          ], JsonResponse::HTTP_SERVICE_UNAVAILABLE);
+            'status'  => 503,
+            'message' => 'Verification service unavailable. Please try later.',
+            'errors'  => [ 'otp' => 'Verification temporarily unavailable.' ],
+        ], 503);
       }
 
       $responseCode = $result['data']['response_code'] ?? null;
@@ -209,10 +257,10 @@ final class AuthController extends AbstractController
           $logger->warning('OTP rejected', ['phone' => $phone, 'result' => $result]);
 
           return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Verification code rejected.',
-              'data' => $result['data'],
-          ], JsonResponse::HTTP_BAD_REQUEST);
+            'status'  => 400,
+            'message' => 'Validation failed',
+            'errors'  => [ 'otp' => 'Verification code rejected.' ],
+        ], 400);
       }
 
       if (isset($result['errors'])) {
@@ -228,10 +276,10 @@ final class AuthController extends AbstractController
       $logger->warning('Unexpected OTP verification response', ['phone' => $phone, 'result' => $result]);
 
       return $this->json([
-          'status' => JsonResponse::HTTP_BAD_GATEWAY,
-          'message' => 'Verification provider returned an unexpected response.',
-          'data' => $result,
-      ], JsonResponse::HTTP_BAD_GATEWAY);
+          'status'  => 502,
+          'message' => 'Unexpected verification provider response.',
+          'errors'  => [ 'otp' => 'Unexpected verification provider response.' ],
+      ], 502);
   }
 
   #[Route('/forgot-password', name: 'forgot_password', methods: ['POST'])]
@@ -245,10 +293,10 @@ final class AuthController extends AbstractController
 
       if (!$phone) {
           return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Phone number is required.',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [ 'phone' => 'Phone number is required.' ],
+          ], 400);
       }
 
       $user = $users->findOneBy(['phone' => $phone]);
@@ -279,7 +327,8 @@ final class AuthController extends AbstractController
       UserRepository $users,
       EntityManagerInterface $em,
       UserPasswordHasherInterface $hasher,
-      \Psr\Log\LoggerInterface $logger
+      \Psr\Log\LoggerInterface $logger,
+      ValidatorInterface $validator
   ): JsonResponse {
       $data = json_decode($request->getContent(), true);
 
@@ -287,14 +336,49 @@ final class AuthController extends AbstractController
       $otp         = $data['otp'] ?? null;
       $newPassword = $data['newPassword'] ?? null;
 
+      // 1) Перевіряємо, що всі поля передані
       if (!$phone || !$otp || !$newPassword) {
           return $this->json([
               'status' => JsonResponse::HTTP_BAD_REQUEST,
               'message' => 'Fields phone, otp and newPassword are required.',
-              'data' => null,
+              'errors' => [
+                  'phone' => !$phone ? 'Phone is required.' : null,
+                  'otp' => !$otp ? 'OTP is required.' : null,
+                  'password' => !$newPassword ? 'Password is required.' : null,
+              ],
           ], JsonResponse::HTTP_BAD_REQUEST);
       }
 
+      // валідація OTP формату (6 цифр)
+      $otpViolations = $validator->validate($otp, [
+          new Assert\Regex([
+              'pattern' => '/^\d{5,6}$/',
+              'message' => 'OTP must be 5 or 6 digits.',
+          ]),
+      ]);
+      if (\count($otpViolations) > 0) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [ 'otp' => $otpViolations[0]->getMessage() ],
+          ], 400);
+      }
+
+      // 2) Тепер перевірка складності пароля
+      $violations = $validator->validate($newPassword, [
+          new PasswordComplexity(),
+      ]);
+      if (\count($violations) > 0) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [
+                  'password' => $violations[0]->getMessage(),
+              ],
+          ], 400);
+      }
+
+      // 3) Шукаємо користувача
       $user = $users->findOneBy(['phone' => $phone]);
       if (!$user) {
           // нейтральна відповідь (не видаємо існування/неіснування)
@@ -305,6 +389,7 @@ final class AuthController extends AbstractController
           ], JsonResponse::HTTP_OK);
       }
 
+      // 4) Перевірка OTP через Telnyx
       try {
           $result = $this->telnyxOtp->verifyOtp($phone, $otp);
       } catch (\Throwable $e) {
@@ -338,10 +423,10 @@ final class AuthController extends AbstractController
 
       if ($responseCode === 'rejected') {
           return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Invalid or expired OTP code.',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
+            'status'  => 400,
+            'message' => 'Validation failed',
+            'errors'  => [ 'otp' => 'Invalid or expired OTP code.' ],
+        ], 400);
       }
 
       if (isset($result['errors'])) {
@@ -358,6 +443,7 @@ final class AuthController extends AbstractController
           'data' => $result,
       ], JsonResponse::HTTP_BAD_GATEWAY);
   }
+
 
   #[Route('/login', name: 'login', methods: ['POST'])]
   public function login(): void

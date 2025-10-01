@@ -1443,6 +1443,8 @@ security:
         - { path: ^/api/v1/auth/send-otp, roles: PUBLIC_ACCESS }
         - { path: ^/api/v1/auth/verify-otp, roles: PUBLIC_ACCESS }
         - { path: ^/api/v1/auth/login, roles: PUBLIC_ACCESS }
+        - { path: ^/api/v1/auth/forgot-password, roles: PUBLIC_ACCESS }
+        - { path: ^/api/v1/auth/reset-password, roles: PUBLIC_ACCESS }
 
           # адмінка тільки для ROLE_ADMIN
         - { path: ^/api/v1/admin, roles: ROLE_ADMIN }
@@ -1701,6 +1703,130 @@ final class AuthController extends AbstractController
       ], JsonResponse::HTTP_BAD_GATEWAY);
   }
 
+  #[Route('/forgot-password', name: 'forgot_password', methods: ['POST'])]
+  public function forgotPassword(
+      Request $request,
+      UserRepository $users,
+      \Psr\Log\LoggerInterface $logger
+  ): JsonResponse {
+      $data = json_decode($request->getContent(), true);
+      $phone = $data['phone'] ?? null;
+
+      if (!$phone) {
+          return $this->json([
+              'status' => JsonResponse::HTTP_BAD_REQUEST,
+              'message' => 'Phone number is required.',
+              'data' => null,
+          ], JsonResponse::HTTP_BAD_REQUEST);
+      }
+
+      $user = $users->findOneBy(['phone' => $phone]);
+
+      if ($user) {
+          try {
+              $this->telnyxOtp->sendOtp($phone);
+              $logger->info('Forgot password OTP sent', ['phone' => $phone]);
+          } catch (\Throwable $e) {
+              $logger->error('Forgot password OTP failed', [
+                  'phone' => $phone,
+                  'error' => $e->getMessage(),
+              ]);
+          }
+      }
+
+      // Завжди нейтральна відповідь
+      return $this->json([
+          'status' => JsonResponse::HTTP_OK,
+          'message' => 'If the phone exists, a reset code was sent.',
+          'data' => null,
+      ], JsonResponse::HTTP_OK);
+  }
+
+  #[Route('/reset-password', name: 'reset_password', methods: ['POST'])]
+  public function resetPassword(
+      Request $request,
+      UserRepository $users,
+      EntityManagerInterface $em,
+      UserPasswordHasherInterface $hasher,
+      \Psr\Log\LoggerInterface $logger
+  ): JsonResponse {
+      $data = json_decode($request->getContent(), true);
+
+      $phone       = $data['phone'] ?? null;
+      $otp         = $data['otp'] ?? null;
+      $newPassword = $data['newPassword'] ?? null;
+
+      if (!$phone || !$otp || !$newPassword) {
+          return $this->json([
+              'status' => JsonResponse::HTTP_BAD_REQUEST,
+              'message' => 'Fields phone, otp and newPassword are required.',
+              'data' => null,
+          ], JsonResponse::HTTP_BAD_REQUEST);
+      }
+
+      $user = $users->findOneBy(['phone' => $phone]);
+      if (!$user) {
+          // нейтральна відповідь (не видаємо існування/неіснування)
+          return $this->json([
+              'status' => JsonResponse::HTTP_OK,
+              'message' => 'If the phone exists, the password has been reset.',
+              'data' => null,
+          ], JsonResponse::HTTP_OK);
+      }
+
+      try {
+          $result = $this->telnyxOtp->verifyOtp($phone, $otp);
+      } catch (\Throwable $e) {
+          $logger->critical('OTP verify exception (reset password)', [
+              'phone' => $phone,
+              'exception' => $e->getMessage()
+          ]);
+
+          return $this->json([
+              'status' => JsonResponse::HTTP_SERVICE_UNAVAILABLE,
+              'message' => 'Verification service unavailable. Please try later.',
+              'data' => null,
+          ], JsonResponse::HTTP_SERVICE_UNAVAILABLE);
+      }
+
+      $responseCode = $result['data']['response_code'] ?? null;
+      if ($responseCode === 'accepted') {
+          // змінюємо пароль
+          $hashed = $hasher->hashPassword($user, $newPassword);
+          $user->setPassword($hashed);
+          $em->flush();
+
+          $logger->info('Password reset successful', ['phone' => $phone]);
+
+          return $this->json([
+              'status' => JsonResponse::HTTP_OK,
+              'message' => 'Password has been reset successfully.',
+              'data' => null,
+          ], JsonResponse::HTTP_OK);
+      }
+
+      if ($responseCode === 'rejected') {
+          return $this->json([
+              'status' => JsonResponse::HTTP_BAD_REQUEST,
+              'message' => 'Invalid or expired OTP code.',
+              'data' => null,
+          ], JsonResponse::HTTP_BAD_REQUEST);
+      }
+
+      if (isset($result['errors'])) {
+          return $this->json([
+              'status' => JsonResponse::HTTP_BAD_REQUEST,
+              'message' => 'Verification request invalid.',
+              'errors' => $result['errors'],
+          ], JsonResponse::HTTP_BAD_REQUEST);
+      }
+
+      return $this->json([
+          'status' => JsonResponse::HTTP_BAD_GATEWAY,
+          'message' => 'Unexpected verification provider response.',
+          'data' => $result,
+      ], JsonResponse::HTTP_BAD_GATEWAY);
+  }
 
   #[Route('/login', name: 'login', methods: ['POST'])]
   public function login(): void

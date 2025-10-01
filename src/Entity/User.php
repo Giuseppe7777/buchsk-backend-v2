@@ -6,6 +6,7 @@ use App\Repository\UserRepository;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
+use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: UserRepository::class)]
 #[ORM\UniqueConstraint(name: 'UNIQ_IDENTIFIER_PHONE', fields: ['phone'])]
@@ -18,6 +19,11 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     private ?int $id = null;
 
     #[ORM\Column(length: 180)]
+    #[Assert\NotBlank(message: 'Phone is required.')]
+    #[Assert\Regex(
+        pattern: '/^\+\d{10,15}$/',
+        message: 'Phone must be in E.164 format, e.g. +421xxxxxxxxx.'
+    )]
     private ?string $phone = null;
 
     /**
@@ -33,9 +39,21 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     private ?string $password = null;
 
     #[ORM\Column(length: 150)]
+    #[Assert\NotBlank(message: 'First name is required.')]
+    #[Assert\Length(min: 2, max: 150, minMessage: 'First name is too short.', maxMessage: 'First name is too long.')]
+    #[Assert\Regex(
+        pattern: '/^[\p{L}\s\'\-]+$/u',
+        message: 'First name may contain letters, spaces, apostrophes and hyphens only.'
+    )]
     private ?string $firstName = null;
 
     #[ORM\Column(length: 150)]
+    #[Assert\NotBlank(message: 'Last name is required.')]
+    #[Assert\Length(min: 2, max: 150, minMessage: 'Last name is too short.', maxMessage: 'Last name is too long.')]
+    #[Assert\Regex(
+        pattern: '/^[\p{L}\s\'\-]+$/u',
+        message: 'Last name may contain letters, spaces, apostrophes and hyphens only.'
+    )]
     private ?string $lastName = null;
 
     #[ORM\Column(length: 20)]
