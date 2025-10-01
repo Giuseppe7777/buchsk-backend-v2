@@ -69,6 +69,7 @@ config/secrets/prod/prod.JWT_PASSPHRASE.0269d8.php
 config/secrets/prod/prod.list.php
 config/secrets/prod/prod.TELNYX_API_KEY.67910e.php
 config/services.yaml
+docs/api/endpoints-new.md
 migrations/Version20250918125648.php
 public/index.php
 src/Command/CreateVerifyProfileCommand.php
@@ -81,11 +82,58 @@ src/Repository/UserRepository.php
 src/Security/AccessDeniedHandler.php
 src/Security/UserChecker.php
 src/Service/TelnyxOtpService.php
+src/Validator/PasswordComplexity.php
+src/Validator/PasswordComplexityValidator.php
 symfony.lock
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="docs/api/endpoints-new.md">
+| Endpoint (Path) | Method | Auth | Request (Body/Query)                 | Validation (rules)                                           | Responses                                                                                                                                                                                                                           |
+| --------------- | ------ | ---- | ------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /auth/register  | POST   | No   | firstName, lastName, phone, password | JSON valid                                                   | `json { "status": 400, "message": "Invalid JSON", "errors": { "json": "Request body must be valid JSON." } }`                                                                                                                       |
+|                 |        |      |                                      | Required: phone, password, firstName, lastName               | `json { "status": 400, "message": "Required fields are missing.", "errors": { "phone": "Phone is required.", "password": "Password is required.", "firstName": "First name is required.", "lastName": "Last name is required." } }` |
+|                 |        |      |                                      | phone: NotBlank, Regex E.164                                 | `json { "status": 400, "message": "Validation failed", "errors": { "phone": "Phone must be in E.164 format, e.g. +421xxxxxxxxx." } }`                                                                                               |
+|                 |        |      |                                      | phone: Unique                                                | `json { "status": 409, "message": "Validation failed", "errors": { "phone": "User with this phone number already exists." } }`                                                                                                      |
+|                 |        |      |                                      | firstName: NotBlank, Length 2–150, Regex                     | `json { "status": 400, "message": "Validation failed", "errors": { "firstName": "First name is too short." } }`                                                                                                                     |
+|                 |        |      |                                      | lastName: NotBlank, Length 2–150, Regex                      | `json { "status": 400, "message": "Validation failed", "errors": { "lastName": "Last name may contain letters, spaces, apostrophes and hyphens only." } }`                                                                          |
+|                 |        |      |                                      | password: PasswordComplexity (≥8, upper/lower/digit/special) | `json { "status": 400, "message": "Validation failed", "errors": { "password": "Password is too weak: must be at least 8 characters long and include uppercase, lowercase, digit, and special character." } }`                      |
+|                 |        |      |                                      | Success                                                      | `json { "status": 201, "message": "User created. Verification SMS sent.", "data": { "id": 1, "phone": "+421905123456" } }`                                                                                                          |
+
+
+| Endpoint (Path)  | Method | Auth | Request (Body/Query)                | Validation (rules)                                           | Responses                                                                                                                                                                                                                           |
+| ---------------- | ------ | ---- | ------------------------------------| --------------------------------------------                 | --------------------------------------------------------------------------------------------------------------------------------------------------------                                                                            |
+| /auth/verify-otp | POST   | No   | phone, code                         | JSON valid                                                   | `json { "status": 400, "message": "Invalid JSON", "errors": { "json": "Request body must be valid JSON." } }`                                                                                                                       |
+|                  |        |      |                                     | Required: phone, code                                        | `json { "status": 400, "message": "Required fields are missing.", "errors": { "phone": "Phone is required.", "otp": "OTP is required." } }`                                                                                         |
+|                  |        |      |                                     | code: Regex 5–6 digits                                       | `json { "status": 400, "message": "Validation failed", "errors": { "otp": "OTP must be 5 or 6 digits." } }`                                                                                                                         |
+|                  |        |      |                                     | phone: User must exist                                       | `json { "status": 404, "message": "Validation failed", "errors": { "phone": "User with this phone not found." } }`                                                                                                                  |
+|                  |        |      |                                     | Verification service unavailable                             | `json { "status": 503, "message": "Verification service unavailable. Please try later.", "errors": { "otp": "Verification temporarily unavailable." } }`                                                                            |
+|                  |        |      |                                     | Verification accepted (success)                              | `json { "status": 200, "message": "OTP verified successfully.", "data": null }`                                                                                                                                                     |
+|                  |        |      |                                     | Verification rejected                                        | `json { "status": 400, "message": "Validation failed", "errors": { "otp": "Verification code rejected." } }`                                                                                                                        |
+|                  |        |      |                                     | Verification request invalid (Telnyx errors)                 | `json { "status": 400, "message": "Verification request invalid.", "errors": { "code": "some error from provider" } }`                                                                                                              |
+|                  |        |      |                                     | Unexpected provider response                                 | `json { "status": 502, "message": "Unexpected verification provider response.", "errors": { "otp": "Unexpected verification provider response." } }`                                                                                |
+
+
+| Endpoint (Path)       | Method | Auth | Request (Body/Query) | Validation (rules)                                                                        | Responses                                                                                                    |
+| --------------------- | ------ | ---- | -------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| /auth/forgot-password | POST   | No   | phone                | Required: phone                                                                           | `json { "status": 400, "message": "Validation failed", "errors": { "phone": "Phone number is required." } }` |
+|                       |        |      |                      | Success (neutral response regardless of user existence / OTP send errors are only logged) | `json { "status": 200, "message": "If the phone exists, a reset code was sent.", "data": null }`             |
+
+
+| Endpoint (Path)      | Method | Auth | Request (Body/Query)    | Validation (rules)                                              | Responses                                                                                                                                                                                           |
+| -------------------- | ------ | ---- | ----------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /auth/reset-password | POST   | No   | phone, otp, newPassword | Required: phone, otp, newPassword                               | `json { "status": 400, "message": "Fields phone, otp and newPassword are required.", "errors": { "phone": "Phone is required.", "otp": "OTP is required.", "password": "Password is required." } }` |
+|                      |        |      |                         | otp: Regex 5–6 digits                                           | `json { "status": 400, "message": "Validation failed", "errors": { "otp": "OTP must be 5 or 6 digits." } }`                                                                                         |
+|                      |        |      |                         | newPassword: PasswordComplexity (≥8, upper/lower/digit/special) | `json { "status": 400, "message": "Validation failed", "errors": { "password": "Password is too weak." } }`                                                                                         |
+|                      |        |      |                         | User existence (neutral if not found)                           | `json { "status": 200, "message": "If the phone exists, the password has been reset.", "data": null }`                                                                                              |
+|                      |        |      |                         | Verification service unavailable                                | `json { "status": 503, "message": "Verification service unavailable. Please try later.", "data": null }`                                                                                            |
+|                      |        |      |                         | Verification accepted (success)                                 | `json { "status": 200, "message": "Password has been reset successfully.", "data": null }`                                                                                                          |
+|                      |        |      |                         | Verification rejected                                           | `json { "status": 400, "message": "Validation failed", "errors": { "otp": "Invalid or expired OTP code." } }`                                                                                       |
+|                      |        |      |                         | Verification request invalid (Telnyx errors)                    | `json { "status": 400, "message": "Verification request invalid.", "errors": { "provider": "..." } }`                                                                                               |
+|                      |        |      |                         | Unexpected provider response                                    | `json { "status": 502, "message": "Unexpected verification provider response.", "data": { "...": "..." } }`                                                                                         |
+</file>
 
 <file path=".editorconfig">
 # editorconfig.org
@@ -771,6 +819,53 @@ final class UserChecker implements UserCheckerInterface
 }
 </file>
 
+<file path="src/Validator/PasswordComplexity.php">
+<?php
+namespace App\Validator;
+
+use Symfony\Component\Validator\Constraint;
+
+#[\Attribute(\Attribute::TARGET_PROPERTY | \Attribute::TARGET_PARAMETER)]
+class PasswordComplexity extends Constraint
+{
+    public string $message = 'Password is too weak: must be at least 8 characters long and include uppercase, lowercase, digit, and special character.';
+
+    public function validatedBy(): string
+    {
+        return static::class.'Validator';
+    }
+}
+</file>
+
+<file path="src/Validator/PasswordComplexityValidator.php">
+<?php
+namespace App\Validator;
+
+use Symfony\Component\Validator\Constraint;
+use Symfony\Component\Validator\ConstraintValidator;
+
+class PasswordComplexityValidator extends ConstraintValidator
+{
+    // мінімум 8 символів; хоча б одна мала, одна велика літера, одна цифра, один спецсимвол
+    private const REGEX = '/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\p{L}\p{N}]).{8,}$/u';
+
+    public function validate($value, Constraint $constraint): void
+    {
+        if (!$constraint instanceof PasswordComplexity) {
+            return;
+        }
+
+        if (!\is_string($value) || $value === '') {
+            return; // порожнє значення перевіряють інші валідатори (NotBlank)
+        }
+
+        if (!\preg_match(self::REGEX, $value)) {
+            $this->context->buildViolation($constraint->message)->addViolation();
+        }
+    }
+}
+</file>
+
 <file path="config/packages/lexik_jwt_authentication.yaml">
 lexik_jwt_authentication:
     secret_key: '%env(resolve:JWT_SECRET_KEY)%'
@@ -934,212 +1029,6 @@ services:
         arguments:
             $telnyx_api_key: '%telnyx_api_key%'
             $telnyx_verify_profile_id: '%telnyx_verify_profile_id%'
-</file>
-
-<file path="src/Entity/User.php">
-<?php
-
-namespace App\Entity;
-
-use App\Repository\UserRepository;
-use Doctrine\ORM\Mapping as ORM;
-use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
-use Symfony\Component\Security\Core\User\UserInterface;
-
-#[ORM\Entity(repositoryClass: UserRepository::class)]
-#[ORM\UniqueConstraint(name: 'UNIQ_IDENTIFIER_PHONE', fields: ['phone'])]
-#[ORM\HasLifecycleCallbacks]
-class User implements UserInterface, PasswordAuthenticatedUserInterface
-{
-    #[ORM\Id]
-    #[ORM\GeneratedValue]
-    #[ORM\Column]
-    private ?int $id = null;
-
-    #[ORM\Column(length: 180)]
-    private ?string $phone = null;
-
-    /**
-     * @var list<string> The user roles
-     */
-    #[ORM\Column]
-    private array $roles = [];
-
-    /**
-     * @var string The hashed password
-     */
-    #[ORM\Column]
-    private ?string $password = null;
-
-    #[ORM\Column(length: 150)]
-    private ?string $firstName = null;
-
-    #[ORM\Column(length: 150)]
-    private ?string $lastName = null;
-
-    #[ORM\Column(length: 20)]
-    private ?string $status = null;
-
-    #[ORM\Column]
-    private ?\DateTimeImmutable $createdAt = null;
-
-    #[ORM\Column(nullable: true)]
-    private ?\DateTimeImmutable $updatedAt = null;
-
-    #[ORM\Column]
-    private ?bool $isVerified = null;
-
-    public function getId(): ?int
-    {
-        return $this->id;
-    }
-
-    public function getPhone(): ?string
-    {
-        return $this->phone;
-    }
-
-    public function setPhone(string $phone): static
-    {
-        $this->phone = $phone;
-
-        return $this;
-    }
-
-    /**
-     * A visual identifier that represents this user.
-     *
-     * @see UserInterface
-     */
-    public function getUserIdentifier(): string
-    {
-        return (string) $this->phone;
-    }
-
-    /**
-     * @see UserInterface
-     */
-    public function getRoles(): array
-    {
-        $roles = $this->roles;
-        // guarantee every user at least has ROLE_USER
-        $roles[] = 'ROLE_USER';
-
-        return array_unique($roles);
-    }
-
-    /**
-     * @param list<string> $roles
-     */
-    public function setRoles(array $roles): static
-    {
-        $this->roles = $roles;
-
-        return $this;
-    }
-
-    /**
-     * @see PasswordAuthenticatedUserInterface
-     */
-    public function getPassword(): ?string
-    {
-        return $this->password;
-    }
-
-    public function setPassword(string $password): static
-    {
-        $this->password = $password;
-
-        return $this;
-    }
-
-    /**
-     * Ensure the session doesn't contain actual password hashes by CRC32C-hashing them, as supported since Symfony 7.3.
-     */
-    public function __serialize(): array
-    {
-        $data = (array) $this;
-        $data["\0".self::class."\0password"] = hash('crc32c', $this->password);
-
-        return $data;
-    }
-
-    #[\Deprecated]
-    public function eraseCredentials(): void
-    {
-        // @deprecated, to be removed when upgrading to Symfony 8
-    }
-
-    public function getFirstName(): ?string
-    {
-        return $this->firstName;
-    }
-
-    public function setFirstName(string $firstName): static
-    {
-        $this->firstName = $firstName;
-
-        return $this;
-    }
-
-    public function getLastName(): ?string
-    {
-        return $this->lastName;
-    }
-
-    public function setLastName(string $lastName): static
-    {
-        $this->lastName = $lastName;
-
-        return $this;
-    }
-
-    public function getStatus(): ?string
-    {
-        return $this->status;
-    }
-
-    public function setStatus(string $status): static
-    {
-        $this->status = $status;
-
-        return $this;
-    }
-
-    public function getCreatedAt(): ?\DateTimeImmutable
-    {
-        return $this->createdAt;
-    }
-
-    #[ORM\PrePersist]
-    public function setCreatedAtValue(): void
-    {
-        $this->createdAt = new \DateTimeImmutable();
-    }
-
-    public function getUpdatedAt(): ?\DateTimeImmutable
-    {
-        return $this->updatedAt;
-    }
-
-    #[ORM\PreUpdate]
-    public function setUpdatedAtValue(): void
-    {
-        $this->updatedAt = new \DateTimeImmutable();
-    }
-
-    public function isVerified(): ?bool
-    {
-        return $this->isVerified;
-    }
-
-    public function setIsVerified(bool $isVerified): static
-    {
-        $this->isVerified = $isVerified;
-
-        return $this;
-    }
-}
 </file>
 
 <file path="symfony.lock">
@@ -1394,6 +1283,230 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
 }
 </file>
 
+<file path="src/Entity/User.php">
+<?php
+
+namespace App\Entity;
+
+use App\Repository\UserRepository;
+use Doctrine\ORM\Mapping as ORM;
+use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
+use Symfony\Component\Security\Core\User\UserInterface;
+use Symfony\Component\Validator\Constraints as Assert;
+
+#[ORM\Entity(repositoryClass: UserRepository::class)]
+#[ORM\UniqueConstraint(name: 'UNIQ_IDENTIFIER_PHONE', fields: ['phone'])]
+#[ORM\HasLifecycleCallbacks]
+class User implements UserInterface, PasswordAuthenticatedUserInterface
+{
+    #[ORM\Id]
+    #[ORM\GeneratedValue]
+    #[ORM\Column]
+    private ?int $id = null;
+
+    #[ORM\Column(length: 180)]
+    #[Assert\NotBlank(message: 'Phone is required.')]
+    #[Assert\Regex(
+        pattern: '/^\+\d{10,15}$/',
+        message: 'Phone must be in E.164 format, e.g. +421xxxxxxxxx.'
+    )]
+    private ?string $phone = null;
+
+    /**
+     * @var list<string> The user roles
+     */
+    #[ORM\Column]
+    private array $roles = [];
+
+    /**
+     * @var string The hashed password
+     */
+    #[ORM\Column]
+    private ?string $password = null;
+
+    #[ORM\Column(length: 150)]
+    #[Assert\NotBlank(message: 'First name is required.')]
+    #[Assert\Length(min: 2, max: 150, minMessage: 'First name is too short.', maxMessage: 'First name is too long.')]
+    #[Assert\Regex(
+        pattern: '/^[\p{L}\s\'\-]+$/u',
+        message: 'First name may contain letters, spaces, apostrophes and hyphens only.'
+    )]
+    private ?string $firstName = null;
+
+    #[ORM\Column(length: 150)]
+    #[Assert\NotBlank(message: 'Last name is required.')]
+    #[Assert\Length(min: 2, max: 150, minMessage: 'Last name is too short.', maxMessage: 'Last name is too long.')]
+    #[Assert\Regex(
+        pattern: '/^[\p{L}\s\'\-]+$/u',
+        message: 'Last name may contain letters, spaces, apostrophes and hyphens only.'
+    )]
+    private ?string $lastName = null;
+
+    #[ORM\Column(length: 20)]
+    private ?string $status = null;
+
+    #[ORM\Column]
+    private ?\DateTimeImmutable $createdAt = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $updatedAt = null;
+
+    #[ORM\Column]
+    private ?bool $isVerified = null;
+
+    public function getId(): ?int
+    {
+        return $this->id;
+    }
+
+    public function getPhone(): ?string
+    {
+        return $this->phone;
+    }
+
+    public function setPhone(string $phone): static
+    {
+        $this->phone = $phone;
+
+        return $this;
+    }
+
+    /**
+     * A visual identifier that represents this user.
+     *
+     * @see UserInterface
+     */
+    public function getUserIdentifier(): string
+    {
+        return (string) $this->phone;
+    }
+
+    /**
+     * @see UserInterface
+     */
+    public function getRoles(): array
+    {
+        $roles = $this->roles;
+        // guarantee every user at least has ROLE_USER
+        $roles[] = 'ROLE_USER';
+
+        return array_unique($roles);
+    }
+
+    /**
+     * @param list<string> $roles
+     */
+    public function setRoles(array $roles): static
+    {
+        $this->roles = $roles;
+
+        return $this;
+    }
+
+    /**
+     * @see PasswordAuthenticatedUserInterface
+     */
+    public function getPassword(): ?string
+    {
+        return $this->password;
+    }
+
+    public function setPassword(string $password): static
+    {
+        $this->password = $password;
+
+        return $this;
+    }
+
+    /**
+     * Ensure the session doesn't contain actual password hashes by CRC32C-hashing them, as supported since Symfony 7.3.
+     */
+    public function __serialize(): array
+    {
+        $data = (array) $this;
+        $data["\0".self::class."\0password"] = hash('crc32c', $this->password);
+
+        return $data;
+    }
+
+    #[\Deprecated]
+    public function eraseCredentials(): void
+    {
+        // @deprecated, to be removed when upgrading to Symfony 8
+    }
+
+    public function getFirstName(): ?string
+    {
+        return $this->firstName;
+    }
+
+    public function setFirstName(string $firstName): static
+    {
+        $this->firstName = $firstName;
+
+        return $this;
+    }
+
+    public function getLastName(): ?string
+    {
+        return $this->lastName;
+    }
+
+    public function setLastName(string $lastName): static
+    {
+        $this->lastName = $lastName;
+
+        return $this;
+    }
+
+    public function getStatus(): ?string
+    {
+        return $this->status;
+    }
+
+    public function setStatus(string $status): static
+    {
+        $this->status = $status;
+
+        return $this;
+    }
+
+    public function getCreatedAt(): ?\DateTimeImmutable
+    {
+        return $this->createdAt;
+    }
+
+    #[ORM\PrePersist]
+    public function setCreatedAtValue(): void
+    {
+        $this->createdAt = new \DateTimeImmutable();
+    }
+
+    public function getUpdatedAt(): ?\DateTimeImmutable
+    {
+        return $this->updatedAt;
+    }
+
+    #[ORM\PreUpdate]
+    public function setUpdatedAtValue(): void
+    {
+        $this->updatedAt = new \DateTimeImmutable();
+    }
+
+    public function isVerified(): ?bool
+    {
+        return $this->isVerified;
+    }
+
+    public function setIsVerified(bool $isVerified): static
+    {
+        $this->isVerified = $isVerified;
+
+        return $this;
+    }
+}
+</file>
+
 <file path="config/packages/security.yaml">
 security:
     # https://symfony.com/doc/current/security.html#registering-the-user-hashing-passwords
@@ -1481,6 +1594,9 @@ use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use App\Service\TelnyxOtpService;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use Symfony\Component\Validator\Validator\ValidatorInterface;
+use App\Validator\PasswordComplexity;
+use Symfony\Component\Validator\Constraints as Assert;
 
 #[Route('/auth', name: 'auth_')]
 final class AuthController extends AbstractController
@@ -1496,27 +1612,46 @@ final class AuthController extends AbstractController
       UserPasswordHasherInterface $hasher,
       UserRepository $users,
       \Psr\Log\LoggerInterface $logger,
+      ValidatorInterface $validator,
   ): JsonResponse 
   {
       $data = json_decode($request->getContent(), true);
 
-      // validation
-      $validationError = $this->validateRegisterInput($data);
-      if ($validationError !== null) {
-          return $validationError;
+      // 1) Перевіряємо JSON і обов’язкові поля
+      if (!$data) {
+          return $this->json([
+              'status' => JsonResponse::HTTP_BAD_REQUEST,
+              'message' => 'Invalid JSON',
+              'errors' => [
+                  'json' => 'Request body must be valid JSON.',
+              ],
+          ], JsonResponse::HTTP_BAD_REQUEST);
       }
 
-      $phone = $data['phone'];
-      $password = $data['password'];
-      $firstName = $data['firstName'];
-      $lastName = $data['lastName'];
+      $phone     = $data['phone'] ?? null;
+      $password  = $data['password'] ?? null;
+      $firstName = $data['firstName'] ?? null;
+      $lastName  = $data['lastName'] ?? null;
 
-      // uniqueness check
+      if (!$phone || !$password || !$firstName || !$lastName) {
+          return $this->json([
+              'status' => JsonResponse::HTTP_BAD_REQUEST,
+              'message' => 'Required fields are missing.',
+              'errors' => [
+                  'phone' => !$phone ? 'Phone is required.' : null,
+                  'password' => !$password ? 'Password is required.' : null,
+                  'firstName' => !$firstName ? 'First name is required.' : null,
+                  'lastName' => !$lastName ? 'Last name is required.' : null,
+              ],
+          ], JsonResponse::HTTP_BAD_REQUEST);
+      }
+
+      // 2) Унікальність телефону
       if ($this->userExists($users, $phone)) {
           return $this->conflictResponse();
       }
 
-      // create user
+      // 3) Створюємо об’єкт користувача
       $user = new User();
       $user->setPhone($phone);
       $user->setFirstName($firstName);
@@ -1524,9 +1659,40 @@ final class AuthController extends AbstractController
       $user->setStatus('pending');
       $user->setIsVerified(false);
 
+      // 4) Валідація (phone, firstName, lastName)
+      $violations = $validator->validate($user);
+      if (\count($violations) > 0) {
+          $errors = [];
+          foreach ($violations as $violation) {
+              $field = $violation->getPropertyPath();
+              $errors[$field] = $violation->getMessage();
+          }
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => $errors,
+          ], 400);
+      }
+
+      // 5) Перевірка складності пароля
+      $violations = $validator->validate($password, [
+          new PasswordComplexity(),
+      ]);
+      if (\count($violations) > 0) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [
+                  'password' => $violations[0]->getMessage(),
+              ],
+          ], 400);
+      }
+
+      // 6) Хешування пароля
       $hashed = $hasher->hashPassword($user, $password);
       $user->setPassword($hashed);
 
+      // 7) Зберігаємо користувача
       try {
           $em->persist($user);
           $em->flush();
@@ -1539,7 +1705,7 @@ final class AuthController extends AbstractController
           return $this->conflictResponse();
       }
 
-      // send OTP
+      // 8) Надсилаємо OTP
       try {
           $result = $this->telnyxOtp->sendOtp($phone);
 
@@ -1547,8 +1713,9 @@ final class AuthController extends AbstractController
               $logger->info('OTP sent', ['phone' => $phone, 'result' => $result]);
               $message = 'User created. Verification SMS sent.';
           } elseif (isset($result['errors'])) {
+              $errorsText = json_encode($result['errors']); 
               $logger->error('OTP sending failed', ['phone' => $phone, 'errors' => $result['errors']]);
-              $message = 'User created, but OTP failed to send. Please try resend.';
+              $message = 'User created, but OTP failed to send. Errors: ' . $errorsText;
           } else {
               $logger->warning('Unexpected OTP response', ['phone' => $phone, 'result' => $result]);
               $message = 'User created, but verification service returned unexpected response.';
@@ -1558,6 +1725,7 @@ final class AuthController extends AbstractController
           $message = 'User created, but verification service unavailable. Please try later.';
       }
 
+      // 9) Успішна відповідь
       return $this->json([
           'status' => JsonResponse::HTTP_CREATED,
           'message' => $message,
@@ -1568,83 +1736,61 @@ final class AuthController extends AbstractController
       ], JsonResponse::HTTP_CREATED);
   }
 
-  private function conflictResponse(): JsonResponse
-  {
-      return $this->json([
-          'status' => JsonResponse::HTTP_CONFLICT,
-          'message' => 'a user with this phone number already exists',
-          'data' => null,
-      ], JsonResponse::HTTP_CONFLICT);
-  }
-
-  private function userExists(UserRepository $users, string $phone): bool
-  {
-      return $users->findOneBy(['phone' => $phone]) !== null;
-  }
-
-  private function validateRegisterInput(?array $data): ?JsonResponse
-  {
-      if (!$data) {
-          return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Invalid JSON',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
-      }
-
-      if (empty($data['phone']) || empty($data['password']) || empty($data['firstName']) || empty($data['lastName'])) {
-          return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Fields phone, password, firstName and lastName are required.',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
-      }
-
-      return null; 
-  }
-
-
-  #[Route('/send-otp', name: 'send-otp', methods: ['POST'])]
-  public function sendOtp(
-      Request $request,
-  ): JsonResponse 
-  {
-      // TODO: sent OTP 
-      return $this->json([
-        "status" => JsonResponse::HTTP_OK,
-        "message" => "otp verified (stub)",
-        "data" => null
-      ]);
-  }
-
   #[Route('/verify-otp', name: 'verify-otp', methods: ['POST'])]
   public function verifyOtp(
       Request $request,
       UserRepository $users,
       EntityManagerInterface $em,
       \Psr\Log\LoggerInterface $logger,
+      ValidatorInterface $validator,
   ): JsonResponse 
   {
       $data = json_decode($request->getContent(), true);
 
-      if (!$data || empty($data['phone']) || empty($data['code'])) {
+      if (!$data) {
           return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Fields phone and code are required.',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
+              'status' => 400,
+              'message' => 'Invalid JSON',
+              'errors' => [ 'json' => 'Request body must be valid JSON.' ],
+          ], 400);
       }
 
-      $phone = $data['phone'];
-      $code  = $data['code'];
+      $phone = $data['phone'] ?? null;
+      $code  = $data['code']  ?? null;
+
+      if (!$phone || !$code) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Required fields are missing.',
+              'errors'  => [
+                  'phone' => !$phone ? 'Phone is required.' : null,
+                  'otp'   => !$code  ? 'OTP is required.'   : null,
+              ],
+          ], 400);
+      }
+
+      // regex-валідатор для OTP (5-6 цифр)
+      $codeViolations = $validator->validate($code, [
+          new Assert\Regex([
+              'pattern' => '/^\d{5,6}$/',
+              'message' => 'OTP must be 5 or 6 digits.',
+          ]),
+      ]);
+      if (\count($codeViolations) > 0) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [ 'otp' => $codeViolations[0]->getMessage() ],
+          ], 400);
+      }
 
       $user = $users->findOneBy(['phone' => $phone]);
       if (!$user) {
           return $this->json([
-              'status' => JsonResponse::HTTP_NOT_FOUND,
-              'message' => 'User with this phone not found.',
-              'data' => null,
-          ], JsonResponse::HTTP_NOT_FOUND);
+              'status'  => 404,
+              'message' => 'Validation failed',
+              'errors'  => [ 'phone' => 'User with this phone not found.' ],
+          ], 404);
       }
 
       try {
@@ -1653,10 +1799,10 @@ final class AuthController extends AbstractController
           $logger->critical('OTP verify exception', ['phone' => $phone, 'exception' => $e->getMessage()]);
 
           return $this->json([
-              'status' => JsonResponse::HTTP_SERVICE_UNAVAILABLE,
-              'message' => 'Verification service unavailable. Please try later.',
-              'data' => null,
-          ], JsonResponse::HTTP_SERVICE_UNAVAILABLE);
+            'status'  => 503,
+            'message' => 'Verification service unavailable. Please try later.',
+            'errors'  => [ 'otp' => 'Verification temporarily unavailable.' ],
+        ], 503);
       }
 
       $responseCode = $result['data']['response_code'] ?? null;
@@ -1678,10 +1824,10 @@ final class AuthController extends AbstractController
           $logger->warning('OTP rejected', ['phone' => $phone, 'result' => $result]);
 
           return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Verification code rejected.',
-              'data' => $result['data'],
-          ], JsonResponse::HTTP_BAD_REQUEST);
+            'status'  => 400,
+            'message' => 'Validation failed',
+            'errors'  => [ 'otp' => 'Verification code rejected.' ],
+        ], 400);
       }
 
       if (isset($result['errors'])) {
@@ -1697,10 +1843,10 @@ final class AuthController extends AbstractController
       $logger->warning('Unexpected OTP verification response', ['phone' => $phone, 'result' => $result]);
 
       return $this->json([
-          'status' => JsonResponse::HTTP_BAD_GATEWAY,
-          'message' => 'Verification provider returned an unexpected response.',
-          'data' => $result,
-      ], JsonResponse::HTTP_BAD_GATEWAY);
+          'status'  => 502,
+          'message' => 'Unexpected verification provider response.',
+          'errors'  => [ 'otp' => 'Unexpected verification provider response.' ],
+      ], 502);
   }
 
   #[Route('/forgot-password', name: 'forgot_password', methods: ['POST'])]
@@ -1714,10 +1860,10 @@ final class AuthController extends AbstractController
 
       if (!$phone) {
           return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Phone number is required.',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [ 'phone' => 'Phone number is required.' ],
+          ], 400);
       }
 
       $user = $users->findOneBy(['phone' => $phone]);
@@ -1748,7 +1894,8 @@ final class AuthController extends AbstractController
       UserRepository $users,
       EntityManagerInterface $em,
       UserPasswordHasherInterface $hasher,
-      \Psr\Log\LoggerInterface $logger
+      \Psr\Log\LoggerInterface $logger,
+      ValidatorInterface $validator
   ): JsonResponse {
       $data = json_decode($request->getContent(), true);
 
@@ -1756,14 +1903,49 @@ final class AuthController extends AbstractController
       $otp         = $data['otp'] ?? null;
       $newPassword = $data['newPassword'] ?? null;
 
+      // 1) Перевіряємо, що всі поля передані
       if (!$phone || !$otp || !$newPassword) {
           return $this->json([
               'status' => JsonResponse::HTTP_BAD_REQUEST,
               'message' => 'Fields phone, otp and newPassword are required.',
-              'data' => null,
+              'errors' => [
+                  'phone' => !$phone ? 'Phone is required.' : null,
+                  'otp' => !$otp ? 'OTP is required.' : null,
+                  'password' => !$newPassword ? 'Password is required.' : null,
+              ],
           ], JsonResponse::HTTP_BAD_REQUEST);
       }
 
+      // валідація OTP формату (6 цифр)
+      $otpViolations = $validator->validate($otp, [
+          new Assert\Regex([
+              'pattern' => '/^\d{5,6}$/',
+              'message' => 'OTP must be 5 or 6 digits.',
+          ]),
+      ]);
+      if (\count($otpViolations) > 0) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [ 'otp' => $otpViolations[0]->getMessage() ],
+          ], 400);
+      }
+
+      // 2) Тепер перевірка складності пароля
+      $violations = $validator->validate($newPassword, [
+          new PasswordComplexity(),
+      ]);
+      if (\count($violations) > 0) {
+          return $this->json([
+              'status'  => 400,
+              'message' => 'Validation failed',
+              'errors'  => [
+                  'password' => $violations[0]->getMessage(),
+              ],
+          ], 400);
+      }
+
+      // 3) Шукаємо користувача
       $user = $users->findOneBy(['phone' => $phone]);
       if (!$user) {
           // нейтральна відповідь (не видаємо існування/неіснування)
@@ -1774,6 +1956,7 @@ final class AuthController extends AbstractController
           ], JsonResponse::HTTP_OK);
       }
 
+      // 4) Перевірка OTP через Telnyx
       try {
           $result = $this->telnyxOtp->verifyOtp($phone, $otp);
       } catch (\Throwable $e) {
@@ -1807,10 +1990,10 @@ final class AuthController extends AbstractController
 
       if ($responseCode === 'rejected') {
           return $this->json([
-              'status' => JsonResponse::HTTP_BAD_REQUEST,
-              'message' => 'Invalid or expired OTP code.',
-              'data' => null,
-          ], JsonResponse::HTTP_BAD_REQUEST);
+            'status'  => 400,
+            'message' => 'Validation failed',
+            'errors'  => [ 'otp' => 'Invalid or expired OTP code.' ],
+        ], 400);
       }
 
       if (isset($result['errors'])) {
@@ -1828,10 +2011,29 @@ final class AuthController extends AbstractController
       ], JsonResponse::HTTP_BAD_GATEWAY);
   }
 
+
   #[Route('/login', name: 'login', methods: ['POST'])]
   public function login(): void
   {
       throw new \LogicException('This method is intercepted by the firewall (json_login).');
+  }
+
+  // help functions =========================================
+
+    private function conflictResponse(): JsonResponse
+  {
+      return $this->json([
+          'status' => JsonResponse::HTTP_CONFLICT,
+          'message' => 'Validation failed',
+          'errors' => [
+              'phone' => 'User with this phone number already exists.',
+          ],
+      ], JsonResponse::HTTP_CONFLICT);
+  }
+
+  private function userExists(UserRepository $users, string $phone): bool
+  {
+      return $users->findOneBy(['phone' => $phone]) !== null;
   }
 
 }

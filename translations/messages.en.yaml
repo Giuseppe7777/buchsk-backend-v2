@@ -1,0 +1,19 @@
+validation:
+  failed: "Validation failed"
+
+errors:
+  phone:
+    exists: "User with this phone number already exists!"
+    required: "Phone number is required."
+    not_found: "User with this phone number was not found."
+  otp:
+    required: "OTP code is required."
+    invalid: "OTP must be 5 or 6 digits."
+    rejected: "Invalid or expired verification code."
+  password:
+    required: "Password is required."
+    weak: "Password is too weak."
+  firstName:
+    required: "First name is required."
+  lastName:
+    required: "Last name is required."

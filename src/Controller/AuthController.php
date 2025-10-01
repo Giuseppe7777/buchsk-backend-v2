@@ -15,12 +15,14 @@ use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 use App\Validator\PasswordComplexity;
 use Symfony\Component\Validator\Constraints as Assert;
+use Symfony\Contracts\Translation\TranslatorInterface;
 
 #[Route('/auth', name: 'auth_')]
 final class AuthController extends AbstractController
 {
     public function __construct(
       private TelnyxOtpService $telnyxOtp,
+      private TranslatorInterface $t,
     ) {}
 
   #[Route('/register', name: 'register', methods: ['POST'])]
@@ -56,10 +58,10 @@ final class AuthController extends AbstractController
               'status' => JsonResponse::HTTP_BAD_REQUEST,
               'message' => 'Required fields are missing.',
               'errors' => [
-                  'phone' => !$phone ? 'Phone is required.' : null,
-                  'password' => !$password ? 'Password is required.' : null,
-                  'firstName' => !$firstName ? 'First name is required.' : null,
-                  'lastName' => !$lastName ? 'Last name is required.' : null,
+                  'phone' => !$phone ? 'errors.phone.required' : null,
+                  'password' => !$password ? 'errors.password.required' : null,
+                  'firstName' => !$firstName ? 'errors.firstName.required' : null,
+                  'lastName' => !$lastName ? 'errors.lastName.required' : null,
               ],
           ], JsonResponse::HTTP_BAD_REQUEST);
       }
@@ -87,7 +89,7 @@ final class AuthController extends AbstractController
           }
           return $this->json([
               'status'  => 400,
-              'message' => 'Validation failed',
+              'message' => 'validation.failed',
               'errors'  => $errors,
           ], 400);
       }
@@ -99,7 +101,7 @@ final class AuthController extends AbstractController
       if (\count($violations) > 0) {
           return $this->json([
               'status'  => 400,
-              'message' => 'Validation failed',
+              'message' => 'validation.failed',
               'errors'  => [
                   'password' => $violations[0]->getMessage(),
               ],
@@ -131,8 +133,9 @@ final class AuthController extends AbstractController
               $logger->info('OTP sent', ['phone' => $phone, 'result' => $result]);
               $message = 'User created. Verification SMS sent.';
           } elseif (isset($result['errors'])) {
+              $errorsText = json_encode($result['errors']); 
               $logger->error('OTP sending failed', ['phone' => $phone, 'errors' => $result['errors']]);
-              $message = 'User created, but OTP failed to send. Please try resend.';
+              $message = 'User created, but OTP failed to send. Errors: ' . $errorsText;
           } else {
               $logger->warning('Unexpected OTP response', ['phone' => $phone, 'result' => $result]);
               $message = 'User created, but verification service returned unexpected response.';
@@ -151,22 +154,6 @@ final class AuthController extends AbstractController
               'phone' => $user->getPhone(),
           ],
       ], JsonResponse::HTTP_CREATED);
-  }
-
-  private function conflictResponse(): JsonResponse
-  {
-      return $this->json([
-          'status' => JsonResponse::HTTP_CONFLICT,
-          'message' => 'Validation failed',
-          'errors' => [
-              'phone' => 'User with this phone number already exists.',
-          ],
-      ], JsonResponse::HTTP_CONFLICT);
-  }
-
-  private function userExists(UserRepository $users, string $phone): bool
-  {
-      return $users->findOneBy(['phone' => $phone]) !== null;
   }
 
   #[Route('/verify-otp', name: 'verify-otp', methods: ['POST'])]
@@ -196,8 +183,8 @@ final class AuthController extends AbstractController
               'status'  => 400,
               'message' => 'Required fields are missing.',
               'errors'  => [
-                  'phone' => !$phone ? 'Phone is required.' : null,
-                  'otp'   => !$code  ? 'OTP is required.'   : null,
+                  'phone' => !$phone ? 'errors.phone.required' : null,
+                  'otp'   => !$code  ? 'errors.otp.required'   : null,
               ],
           ], 400);
       }
@@ -212,7 +199,7 @@ final class AuthController extends AbstractController
       if (\count($codeViolations) > 0) {
           return $this->json([
               'status'  => 400,
-              'message' => 'Validation failed',
+              'message' => 'validation.failed',
               'errors'  => [ 'otp' => $codeViolations[0]->getMessage() ],
           ], 400);
       }
@@ -221,7 +208,7 @@ final class AuthController extends AbstractController
       if (!$user) {
           return $this->json([
               'status'  => 404,
-              'message' => 'Validation failed',
+              'message' => 'validation.failed',
               'errors'  => [ 'phone' => 'User with this phone not found.' ],
           ], 404);
       }
@@ -258,8 +245,8 @@ final class AuthController extends AbstractController
 
           return $this->json([
             'status'  => 400,
-            'message' => 'Validation failed',
-            'errors'  => [ 'otp' => 'Verification code rejected.' ],
+            'message' => 'validation.failed',
+            'errors'  => [ 'otp' => 'errors.otp.rejected' ],
         ], 400);
       }
 
@@ -294,8 +281,8 @@ final class AuthController extends AbstractController
       if (!$phone) {
           return $this->json([
               'status'  => 400,
-              'message' => 'Validation failed',
-              'errors'  => [ 'phone' => 'Phone number is required.' ],
+              'message' => 'validation.failed',
+              'errors'  => [ 'phone' => 'errors.phone.required' ],
           ], 400);
       }
 
@@ -342,9 +329,9 @@ final class AuthController extends AbstractController
               'status' => JsonResponse::HTTP_BAD_REQUEST,
               'message' => 'Fields phone, otp and newPassword are required.',
               'errors' => [
-                  'phone' => !$phone ? 'Phone is required.' : null,
-                  'otp' => !$otp ? 'OTP is required.' : null,
-                  'password' => !$newPassword ? 'Password is required.' : null,
+                  'phone' => !$phone ? 'errors.phone.required' : null,
+                  'otp' => !$otp ? 'errors.otp.required' : null,
+                  'password' => !$newPassword ? 'errors.password.required' : null,
               ],
           ], JsonResponse::HTTP_BAD_REQUEST);
       }
@@ -359,7 +346,7 @@ final class AuthController extends AbstractController
       if (\count($otpViolations) > 0) {
           return $this->json([
               'status'  => 400,
-              'message' => 'Validation failed',
+              'message' => 'validation.failed',
               'errors'  => [ 'otp' => $otpViolations[0]->getMessage() ],
           ], 400);
       }
@@ -371,7 +358,7 @@ final class AuthController extends AbstractController
       if (\count($violations) > 0) {
           return $this->json([
               'status'  => 400,
-              'message' => 'Validation failed',
+              'message' => 'validation.failed',
               'errors'  => [
                   'password' => $violations[0]->getMessage(),
               ],
@@ -424,8 +411,8 @@ final class AuthController extends AbstractController
       if ($responseCode === 'rejected') {
           return $this->json([
             'status'  => 400,
-            'message' => 'Validation failed',
-            'errors'  => [ 'otp' => 'Invalid or expired OTP code.' ],
+            'message' => 'validation.failed',
+            'errors'  => [ 'otp' => 'errors.otp.rejected' ],
         ], 400);
       }
 
@@ -449,6 +436,24 @@ final class AuthController extends AbstractController
   public function login(): void
   {
       throw new \LogicException('This method is intercepted by the firewall (json_login).');
+  }
+
+  // help functions =========================================
+
+    private function conflictResponse(): JsonResponse
+  {
+      return $this->json([
+          'status' => JsonResponse::HTTP_CONFLICT,
+          'message' => $this->t->trans('validation.failed'),
+          'errors' => [
+              'phone' => $this->t->trans('errors.phone.exists'),
+          ],
+      ], JsonResponse::HTTP_CONFLICT);
+  }
+
+  private function userExists(UserRepository $users, string $phone): bool
+  {
+      return $users->findOneBy(['phone' => $phone]) !== null;
   }
 
 }

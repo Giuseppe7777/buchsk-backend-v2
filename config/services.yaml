@@ -30,3 +30,5 @@ services:
         arguments:
             $telnyx_api_key: '%telnyx_api_key%'
             $telnyx_verify_profile_id: '%telnyx_verify_profile_id%'
+
+    App\EventSubscriber\LocaleSubscriber: ~

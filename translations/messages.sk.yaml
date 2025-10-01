@@ -1,0 +1,19 @@
+validation:
+  failed: "Validácia zlyhala"
+
+errors:
+  phone:
+    exists: "Používateľ s týmto telefónnym číslom už existuje."
+    required: "Telefónne číslo je povinné."
+    not_found: "Používateľ s týmto telefónnym číslom nebol nájdený."
+  otp:
+    required: "Overovací kód je povinný."
+    invalid: "Kód musí obsahovať 5 alebo 6 číslic."
+    rejected: "Neplatný alebo expirovaný overovací kód."
+  password:
+    required: "Heslo je povinné."
+    weak: "Heslo je príliš slabé."
+  firstName:
+    required: "Krstné meno je povinné."
+  lastName:
+    required: "Priezvisko je povinné."

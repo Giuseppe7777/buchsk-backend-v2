@@ -1,0 +1,19 @@
+validation:
+  failed: "Validierung fehlgeschlagen"
+
+errors:
+  phone:
+    exists: "Ein Benutzer mit dieser Telefonnummer existiert bereits."
+    required: "Telefonnummer ist erforderlich."
+    not_found: "Benutzer mit dieser Telefonnummer wurde nicht gefunden."
+  otp:
+    required: "Bestätigungscode ist erforderlich."
+    invalid: "Der Code muss aus 5 oder 6 Ziffern bestehen."
+    rejected: "Ungültiger oder abgelaufener Code."
+  password:
+    required: "Passwort ist erforderlich."
+    weak: "Passwort ist zu schwach."
+  firstName:
+    required: "Vorname ist erforderlich."
+  lastName:
+    required: "Nachname ist erforderlich."
