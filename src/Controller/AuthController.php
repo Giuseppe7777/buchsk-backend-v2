@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Entity\User;
 use App\Repository\UserRepository;
+use App\Service\CompanyLookupService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -23,6 +24,7 @@ final class AuthController extends AbstractController
     public function __construct(
       private TelnyxOtpService $telnyxOtp,
       private TranslatorInterface $t,
+      private CompanyLookupService $companyLookup,
     ) {}
 
   #[Route('/register', name: 'register', methods: ['POST'])]
@@ -231,14 +233,85 @@ final class AuthController extends AbstractController
         $user->setStatus('active');
         $em->flush();
 
-        $logger->info('OTP verified', ['phone' => $phone, 'result' => $result]);
+        // === 1. Отримуємо IČO з JSON (воно вже приходить з фронтенду) ===
+        $ico = $data['ico'] ?? null;
 
+        if ($ico) {
+            try {
+                // === 2. Отримуємо дані з RegisterUZ API ===
+                $companyData = $this->companyLookup->getCompanyDataByIco($ico);
+
+                if (!isset($companyData['error'])) {
+                    $detail = $companyData['detail'] ?? [];
+
+                    // === 3. Створюємо Company і заповнюємо поля ===
+                    $company = new \App\Entity\Company();
+                    $company->setUser($user);
+                    $company->setRuzId($companyData['id']);
+                    $company->setIco($ico);
+                    $company->setDic($detail['dic'] ?? null);
+                    $company->setSid($detail['sid'] ?? null);
+                    $company->setNazovUj($detail['nazovUJ'] ?? null);
+                    $company->setMesto($detail['mesto'] ?? null);
+                    $company->setUlica($detail['ulica'] ?? null);
+                    $company->setPsc($detail['psc'] ?? null);
+                    $company->setDatumZalozenia(!empty($detail['datumZalozenia']) ? new \DateTime($detail['datumZalozenia']) : null);
+                    $company->setDatumZrusenia(
+                        !empty($detail['datumZrusenia']) ? new \DateTime($detail['datumZrusenia']) : null
+                    );
+                    $company->setPravnaForma($detail['pravnaForma'] ?? null);
+                    $company->setSkNace($detail['skNace'] ?? null);
+                    $company->setVelkostOrganizacie($detail['velkostOrganizacie'] ?? null);
+                    $company->setDruhVlastnictva($detail['druhVlastnictva'] ?? null);
+                    $company->setKraj($detail['kraj'] ?? null);
+                    $company->setOkres($detail['okres'] ?? null);
+                    $company->setSidlo($detail['sidlo'] ?? null);
+                    $company->setKonsolidovana(
+                        isset($detail['konsolidovana'])
+                            ? filter_var($detail['konsolidovana'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+                            : null
+                    );
+                    $company->setIdUctovnychZavierok(
+                        isset($detail['idUctovnychZavierok']) && is_array($detail['idUctovnychZavierok'])
+                            ? array_map(static fn($v) => (int) $v, $detail['idUctovnychZavierok'])
+                            : null
+                    );
+                    $company->setIdVyrocnychSprav(
+                        isset($detail['idVyrocnychSprav']) && is_array($detail['idVyrocnychSprav'])
+                            ? array_map(static fn($v) => (int) $v, $detail['idVyrocnychSprav'])
+                            : null
+                    );
+                    $company->setZdrojDat($detail['zdrojDat'] ?? null);
+                    $company->setDatumPoslednejUpravy(!empty($detail['datumPoslednejUpravy']) ? new \DateTime($detail['datumPoslednejUpravy']) : null);
+
+                    $em->persist($company);
+                    $em->flush();
+
+                    $logger->info('Company data saved', [
+                        'userId' => $user->getId(),
+                        'ico' => $ico,
+                        'companyId' => $company->getId()
+                    ]);
+                } else {
+                    $logger->warning('Company not found in RegisterUZ', ['ico' => $ico]);
+                }
+            } catch (\Throwable $e) {
+                $logger->error('Failed to fetch or save company data', [
+                    'ico' => $ico,
+                    'exception' => $e->getMessage(),
+                ]);
+            }
+        } else {
+            $logger->warning('ICO missing in OTP verification request', ['phone' => $phone]);
+        }
+
+        // === 4. Повертаємо успішну відповідь ===
         return $this->json([
-          'status' => JsonResponse::HTTP_OK,
-          'message' => 'OTP verified successfully.',
-          'data' => null,
+            'status' => JsonResponse::HTTP_OK,
+            'message' => 'OTP verified successfully and company data saved.',
+            'data' => null,
         ]);
-      }
+    }
 
       if ($responseCode === 'rejected') {
           $logger->warning('OTP rejected', ['phone' => $phone, 'result' => $result]);
@@ -437,6 +510,15 @@ final class AuthController extends AbstractController
   {
       throw new \LogicException('This method is intercepted by the firewall (json_login).');
   }
+
+  // test get entrepreneur data =========================================
+  #[Route('/test-ico/{ico}', name: 'auth_test_ico', methods: ['GET'])]
+  public function testIco(string $ico, CompanyLookupService $lookup): JsonResponse
+  {
+      $data = $lookup->getCompanyDataByIco($ico);
+      return new JsonResponse($data);
+  }
+
 
   // help functions =========================================
 
